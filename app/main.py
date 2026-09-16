@@ -3,18 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, HttpUrl
 
 from app.services.analyzer import analyze_url
+from app.services.report import report_html, report_json
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
 app = FastAPI(
     title="Internet X-Ray",
-    version="0.1.0",
+    version="0.3.0",
     description="Analyze the hidden network activity behind a web page.",
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -45,3 +46,13 @@ async def analyze(payload: AnalyzeRequest) -> dict:
             status_code=502,
             detail="The target page could not be analyzed. Check the URL and try again.",
         ) from exc
+
+
+@app.post("/api/report/json")
+async def export_json(payload: dict) -> Response:
+    return Response(report_json(payload), media_type="application/json")
+
+
+@app.post("/api/report/html")
+async def export_html(payload: dict) -> Response:
+    return Response(report_html(payload), media_type="text/html")
