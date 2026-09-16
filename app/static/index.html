@@ -10,7 +10,7 @@
 <body>
   <main class="shell">
     <header class="hero">
-      <div class="eyebrow">INTERNET X-RAY / v0.2</div>
+      <div class="eyebrow">INTERNET X-RAY / v0.3</div>
       <h1>See what happens<br><span>behind the page.</span></h1>
       <p>Enter a public URL. X-Ray opens it in Chromium and turns invisible browser activity into measurable evidence.</p>
     </header>
@@ -25,78 +25,26 @@
     <section id="results" class="hidden">
       <div id="page-summary" class="page-summary"></div>
       <div class="grid metrics" id="metrics"></div>
+      <div class="toolbar"><button id="export-json" type="button">Export JSON</button><button id="export-html" type="button">Export HTML</button></div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <div class="eyebrow">NAVIGATION TIMING</div>
-            <h2>Where the time went</h2>
-          </div>
-          <span id="final-url" class="mono"></span>
-        </div>
-        <div id="timing" class="timing-grid"></div>
-      </div>
+      <div class="panel"><div class="panel-head"><div><div class="eyebrow">NAVIGATION TIMING</div><h2>Where the time went</h2></div><span id="final-url" class="mono"></span></div><div id="timing" class="timing-grid"></div></div>
 
       <div class="two-col">
-        <div class="panel">
-          <div class="eyebrow">RESOURCE MIX</div>
-          <h2>What the browser loaded</h2>
-          <div id="resources" class="bars"></div>
-        </div>
-
-        <div class="panel">
-          <div class="eyebrow">EXTERNAL HOSTS</div>
-          <h2>Who else was contacted</h2>
-          <div id="hosts" class="host-list"></div>
-        </div>
+        <div class="panel"><div class="eyebrow">RESOURCE MIX</div><h2>What the browser loaded</h2><div id="resources" class="bars"></div></div>
+        <div class="panel"><div class="eyebrow">EXTERNAL HOSTS</div><h2>Who else was contacted</h2><div id="hosts" class="host-list"></div></div>
       </div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <div class="eyebrow">REQUEST WATERFALL</div>
-            <h2>When resources started and finished</h2>
-          </div>
-          <span id="waterfall-label" class="muted"></span>
-        </div>
-        <div id="waterfall" class="waterfall"></div>
-      </div>
+      <div class="panel"><div class="panel-head"><div><div class="eyebrow">REQUEST WATERFALL</div><h2>When resources started and finished</h2></div><span id="waterfall-label" class="muted"></span></div><div id="waterfall" class="waterfall"></div></div>
 
       <div class="two-col">
-        <div class="panel">
-          <div class="eyebrow">SECURITY SIGNALS</div>
-          <h2>Response headers</h2>
-          <div id="security" class="host-list"></div>
-        </div>
-        <div class="panel">
-          <div class="eyebrow">NETWORK HEALTH</div>
-          <h2>Failed requests</h2>
-          <div id="failures" class="failure-list"></div>
-        </div>
+        <div class="panel"><div class="eyebrow">SECURITY SIGNALS</div><h2>Response headers</h2><div id="security" class="host-list"></div></div>
+        <div class="panel"><div class="eyebrow">NETWORK HEALTH</div><h2>Failed requests</h2><div id="failures" class="failure-list"></div></div>
       </div>
 
-      <div class="panel">
-        <div class="panel-head">
-          <div>
-            <div class="eyebrow">REQUEST STREAM</div>
-            <h2>Network activity</h2>
-          </div>
-          <span id="request-count-label" class="muted"></span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Host</th><th>Type</th><th>Status</th><th>Time</th><th>Size</th><th>Third-party</th></tr>
-            </thead>
-            <tbody id="requests"></tbody>
-          </table>
-        </div>
-      </div>
+      <div class="panel"><div class="panel-head"><div><div class="eyebrow">REQUEST STREAM</div><h2>Network activity</h2></div><span id="request-count-label" class="muted"></span></div><div class="table-wrap"><table><thead><tr><th>Host</th><th>Type</th><th>Status</th><th>Time</th><th>Size</th><th>Third-party</th></tr></thead><tbody id="requests"></tbody></table></div></div>
     </section>
 
-    <footer>
-      Built to make hidden systems visible. <a href="https://github.com/IsmeetPandey/internet-xray" target="_blank" rel="noreferrer">Source on GitHub ↗</a>
-    </footer>
+    <footer>Built to make hidden systems visible. <a href="https://github.com/IsmeetPandey/internet-xray" target="_blank" rel="noreferrer">Source on GitHub ↗</a></footer>
   </main>
   <script src="/static/app.js"></script>
 </body>
