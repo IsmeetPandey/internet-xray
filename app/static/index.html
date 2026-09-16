@@ -10,9 +10,9 @@
 <body>
   <main class="shell">
     <header class="hero">
-      <div class="eyebrow">INTERNET X-RAY / v0.1</div>
+      <div class="eyebrow">INTERNET X-RAY / v0.2</div>
       <h1>See what happens<br><span>behind the page.</span></h1>
-      <p>Enter a public URL. X-Ray loads it in Chromium and turns invisible network activity into readable evidence.</p>
+      <p>Enter a public URL. X-Ray opens it in Chromium and turns invisible browser activity into measurable evidence.</p>
     </header>
 
     <form id="analyze-form" class="searchbar">
@@ -23,6 +23,7 @@
     <section id="state" class="state hidden" aria-live="polite"></section>
 
     <section id="results" class="hidden">
+      <div id="page-summary" class="page-summary"></div>
       <div class="grid metrics" id="metrics"></div>
 
       <div class="panel">
@@ -53,6 +54,30 @@
       <div class="panel">
         <div class="panel-head">
           <div>
+            <div class="eyebrow">REQUEST WATERFALL</div>
+            <h2>When resources started and finished</h2>
+          </div>
+          <span id="waterfall-label" class="muted"></span>
+        </div>
+        <div id="waterfall" class="waterfall"></div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="eyebrow">SECURITY SIGNALS</div>
+          <h2>Response headers</h2>
+          <div id="security" class="host-list"></div>
+        </div>
+        <div class="panel">
+          <div class="eyebrow">NETWORK HEALTH</div>
+          <h2>Failed requests</h2>
+          <div id="failures" class="failure-list"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
             <div class="eyebrow">REQUEST STREAM</div>
             <h2>Network activity</h2>
           </div>
@@ -61,7 +86,7 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Host</th><th>Type</th><th>Status</th><th>Time</th><th>Third-party</th></tr>
+              <tr><th>Host</th><th>Type</th><th>Status</th><th>Time</th><th>Size</th><th>Third-party</th></tr>
             </thead>
             <tbody id="requests"></tbody>
           </table>
