@@ -3,109 +3,16 @@ const urlInput = document.querySelector('#url');
 const button = form.querySelector('button');
 const state = document.querySelector('#state');
 const results = document.querySelector('#results');
+let latestData = null;
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ms = (value) => value == null ? '—' : `${Math.round(value)} ms`;
-const bytes = (value) => {
-  if (!value) return '0 B';
-  const units = ['B','KB','MB','GB'];
-  let n = Math.max(0, Number(value)), i = 0;
-  while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
-  return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
-};
-
-function showState(message, error = false) {
-  state.classList.remove('hidden');
-  state.textContent = message;
-  state.dataset.error = error ? 'true' : 'false';
-}
-
-function renderWaterfall(requests) {
-  const items = requests.filter(r => r.start_ms != null && r.duration_ms != null).slice(0, 80);
-  if (!items.length) {
-    document.querySelector('#waterfall').innerHTML = '<div class="muted">No browser timing entries were available.</div>';
-    return;
-  }
-  const maxEnd = Math.max(...items.map(r => r.start_ms + r.duration_ms), 1);
-  document.querySelector('#waterfall-label').textContent = `${items.length} timing entries`;
-  document.querySelector('#waterfall').innerHTML = items.map((r) => {
-    const left = Math.min(99.5, Math.max(0, (r.start_ms / maxEnd) * 100));
-    const width = Math.min(100 - left, Math.max(0.5, (r.duration_ms / maxEnd) * 100));
-    const stateClass = r.failed ? 'wf-fail' : (r.is_third_party ? 'wf-third' : 'wf-main');
-    return `<div class="wf-row"><div class="wf-label" title="${esc(r.url)}">${esc(r.host || r.url)}</div><div class="wf-track"><div class="wf-bar ${stateClass}" style="left:${left}%;width:${width}%" title="${esc(r.resource_type)} • ${ms(r.duration_ms)}"></div></div></div>`;
-  }).join('');
-}
-
-function render(data) {
-  results.classList.remove('hidden');
-  state.classList.add('hidden');
-
-  document.querySelector('#page-summary').innerHTML = `<div><strong>${esc(data.page_title || 'Untitled page')}</strong><span>${esc(data.origin_host)}</span></div><a href="${esc(data.final_url)}" target="_blank" rel="noreferrer">Open analyzed page ↗</a>`;
-
-  document.querySelector('#metrics').innerHTML = [
-    ['Requests', data.request_count],
-    ['Third-party', data.third_party_request_count],
-    ['Failed', data.failed_request_count],
-    ['Blocked', data.blocked_request_count || 0],
-    ['Known data', bytes(data.known_response_bytes)]
-  ].map(([label, value]) => `<div class="metric"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div></div>`).join('');
-
-  document.querySelector('#final-url').textContent = data.final_url;
-  const timing = data.timing || {};
-  const timingRows = [
-    ['DNS', timing.dns_ms], ['TCP', timing.tcp_ms], ['TLS', timing.tls_ms],
-    ['TTFB', timing.ttfb_ms], ['DOM ready', timing.dom_content_loaded_ms], ['Load', timing.load_event_ms]
-  ];
-  document.querySelector('#timing').innerHTML = timingRows.map(([name, value]) =>
-    `<div class="timing-item"><div class="name">${name}</div><div class="num">${ms(value)}</div></div>`).join('');
-
-  const resources = Object.entries(data.resource_counts || {}).sort((a,b) => b[1]-a[1]);
-  const maxResource = resources[0]?.[1] || 1;
-  document.querySelector('#resources').innerHTML = resources.length ? resources.map(([name,count]) =>
-    `<div class="bar-row"><span>${esc(name)}</span><div class="track"><div class="fill" style="width:${(count/maxResource)*100}%"></div></div><strong>${count}</strong></div>`).join('') : '<div class="muted">No response records.</div>';
-
-  const hosts = Object.entries(data.host_counts || {}).sort((a,b) => b[1]-a[1]).slice(0, 14);
-  document.querySelector('#hosts').innerHTML = hosts.length ? hosts.map(([host,count]) =>
-    `<div class="host"><span>${esc(host)}</span><span class="count">${count}</span></div>`).join('') : '<div class="muted">No hosts recorded.</div>';
-
-  const security = Object.entries(data.security_headers || {});
-  const missing = data.missing_security_headers || [];
-  document.querySelector('#security').innerHTML = security.length || missing.length ? [
-    ...security.map(([name]) => `<div class="host"><span>${esc(name)}</span><span class="count">present</span></div>`),
-    ...missing.map((name) => `<div class="host"><span>${esc(name)}</span><span class="count">not observed</span></div>`)
-  ].join('') : '<div class="muted">No tracked security headers were returned by the main document.</div>';
-
-  const failures = (data.requests || []).filter(r => r.failed || (r.status && r.status >= 400)).slice(0, 10);
-  document.querySelector('#failures').innerHTML = failures.length ? failures.map(r =>
-    `<div class="failure"><strong>${esc(r.host || 'unknown')}</strong><span>${esc(r.failure || `HTTP ${r.status}`)}</span></div>`).join('') : '<div class="muted">No failed requests or 4xx/5xx responses captured.</div>';
-
-  const requests = [...(data.requests || [])].sort((a,b) => (b.duration_ms ?? 0) - (a.duration_ms ?? 0)).slice(0, 100);
-  document.querySelector('#request-count-label').textContent = `${requests.length} shown`;
-  document.querySelector('#requests').innerHTML = requests.map((r) => {
-    const statusClass = r.failed || (r.status >= 400) ? 'status-bad' : 'status-ok';
-    return `<tr><td class="mono">${esc(r.host)}</td><td>${esc(r.resource_type)}</td><td class="${statusClass}">${esc(r.status ?? 'FAILED')}</td><td>${ms(r.duration_ms)}</td><td>${bytes(r.response_size)}</td><td>${r.is_third_party ? 'YES' : 'NO'}</td></tr>`;
-  }).join('');
-
-  renderWaterfall([...(data.requests || [])].sort((a,b) => (a.start_ms ?? 1e15) - (b.start_ms ?? 1e15)));
-}
-
-form.addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const url = urlInput.value.trim();
-  if (!url) return;
-  button.disabled = true;
-  results.classList.add('hidden');
-  showState('Running a real Chromium trace…');
-  try {
-    const response = await fetch('/api/analyze', {
-      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({url})
-    });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || 'Analysis failed.');
-    render(payload);
-  } catch (error) {
-    showState(error.message || 'Something went wrong.', true);
-  } finally {
-    button.disabled = false;
-  }
-});
+const bytes = (value) => { if (!value) return '0 B'; const units=['B','KB','MB','GB']; let n=Math.max(0,Number(value)),i=0; while(n>=1024&&i<units.length-1){n/=1024;i+=1;} return `${n.toFixed(n>=10||i===0?0:1)} ${units[i]}`; };
+function showState(message,error=false){state.classList.remove('hidden');state.textContent=message;state.dataset.error=error?'true':'false';}
+function downloadBlob(content,type,filename){const url=URL.createObjectURL(new Blob([content],{type}));const a=document.createElement('a');a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+async function exportReport(format){if(!latestData)return;const response=await fetch(`/api/report/${format}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(latestData)});if(!response.ok)throw new Error('Export failed.');const text=await response.text();downloadBlob(text,format==='json'?'application/json':'text/html',`internet-xray-report.${format}`);}
+function renderWaterfall(requests){const items=requests.filter(r=>r.start_ms!=null&&r.duration_ms!=null).slice(0,80);if(!items.length){document.querySelector('#waterfall').innerHTML='<div class="muted">No browser timing entries were available.</div>';return;}const maxEnd=Math.max(...items.map(r=>r.start_ms+r.duration_ms),1);document.querySelector('#waterfall-label').textContent=`${items.length} timing entries`;document.querySelector('#waterfall').innerHTML=items.map(r=>{const left=Math.min(99.5,Math.max(0,(r.start_ms/maxEnd)*100));const width=Math.min(100-left,Math.max(.5,(r.duration_ms/maxEnd)*100));const stateClass=r.failed?'wf-fail':(r.is_third_party?'wf-third':'wf-main');return `<div class="wf-row"><div class="wf-label" title="${esc(r.url)}">${esc(r.host||r.url)}</div><div class="wf-track"><div class="wf-bar ${stateClass}" style="left:${left}%;width:${width}%" title="${esc(r.resource_type)} • ${ms(r.duration_ms)}"></div></div></div>`;}).join('');}
+function render(data){latestData=data;results.classList.remove('hidden');state.classList.add('hidden');document.querySelector('#page-summary').innerHTML=`<div><strong>${esc(data.page_title||'Untitled page')}</strong><span>${esc(data.origin_host)}</span></div><a href="${esc(data.final_url)}" target="_blank" rel="noreferrer">Open analyzed page ↗</a>`;document.querySelector('#metrics').innerHTML=[['Requests',data.request_count],['Third-party',data.third_party_request_count],['Failed',data.failed_request_count],['Blocked',data.blocked_request_count||0],['Known data',bytes(data.known_response_bytes)]].map(([label,value])=>`<div class="metric"><div class="label">${esc(label)}</div><div class="value">${esc(value)}</div></div>`).join('');document.querySelector('#final-url').textContent=data.final_url;const timing=data.timing||{};document.querySelector('#timing').innerHTML=[['DNS',timing.dns_ms],['TCP',timing.tcp_ms],['TLS',timing.tls_ms],['TTFB',timing.ttfb_ms],['DOM ready',timing.dom_content_loaded_ms],['Load',timing.load_event_ms]].map(([name,value])=>`<div class="timing-item"><div class="name">${name}</div><div class="num">${ms(value)}</div></div>`).join('');const resources=Object.entries(data.resource_counts||{}).sort((a,b)=>b[1]-a[1]);const maxResource=resources[0]?.[1]||1;document.querySelector('#resources').innerHTML=resources.length?resources.map(([name,count])=>`<div class="bar-row"><span>${esc(name)}</span><div class="track"><div class="fill" style="width:${(count/maxResource)*100}%"></div></div><strong>${count}</strong></div>`).join(''):'<div class="muted">No response records.</div>';const hosts=Object.entries(data.host_counts||{}).sort((a,b)=>b[1]-a[1]).slice(0,14);document.querySelector('#hosts').innerHTML=hosts.length?hosts.map(([host,count])=>`<div class="host"><span>${esc(host)}</span><span class="count">${count}</span></div>`).join(''):'<div class="muted">No hosts recorded.</div>';const security=Object.entries(data.security_headers||{}),missing=data.missing_security_headers||[];document.querySelector('#security').innerHTML=security.length||missing.length?[...security.map(([name])=>`<div class="host"><span>${esc(name)}</span><span class="count">present</span></div>`),...missing.map(name=>`<div class="host"><span>${esc(name)}</span><span class="count">not observed</span></div>`)].join(''):'<div class="muted">No tracked security headers were returned by the main document.</div>';const failures=(data.requests||[]).filter(r=>r.failed||(r.status&&r.status>=400)).slice(0,10);document.querySelector('#failures').innerHTML=failures.length?failures.map(r=>`<div class="failure"><strong>${esc(r.host||'unknown')}</strong><span>${esc(r.failure||`HTTP ${r.status}`)}</span></div>`).join(''):'<div class="muted">No failed requests or 4xx/5xx responses captured.</div>';const requests=[...(data.requests||[])].sort((a,b)=>(b.duration_ms??0)-(a.duration_ms??0)).slice(0,100);document.querySelector('#request-count-label').textContent=`${requests.length} shown`;document.querySelector('#requests').innerHTML=requests.map(r=>{const statusClass=r.failed||(r.status>=400)?'status-bad':'status-ok';return `<tr><td class="mono">${esc(r.host)}</td><td>${esc(r.resource_type)}</td><td class="${statusClass}">${esc(r.status??'FAILED')}</td><td>${ms(r.duration_ms)}</td><td>${bytes(r.response_size)}</td><td>${r.is_third_party?'YES':'NO'}</td></tr>`;}).join('');renderWaterfall([...(data.requests||[])].sort((a,b)=>(a.start_ms??1e15)-(b.start_ms??1e15)));}
+form.addEventListener('submit',async(event)=>{event.preventDefault();const url=urlInput.value.trim();if(!url)return;button.disabled=true;results.classList.add('hidden');showState('Running a real Chromium trace…');try{const response=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});const payload=await response.json();if(!response.ok)throw new Error(payload.detail||'Analysis failed.');render(payload);}catch(error){showState(error.message||'Something went wrong.',true);}finally{button.disabled=false;}});
+document.querySelector('#export-json').addEventListener('click',()=>exportReport('json').catch(e=>showState(e.message,true)));
+document.querySelector('#export-html').addEventListener('click',()=>exportReport('html').catch(e=>showState(e.message,true)));
