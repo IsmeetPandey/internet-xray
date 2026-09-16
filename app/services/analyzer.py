@@ -6,7 +6,9 @@ from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-from playwright.async_api import Browser, Page, async_playwright
+from playwright.async_api import Browser, Page, Route, async_playwright
+
+from app.services.security import validate_public_url
 
 
 @dataclass
@@ -27,14 +29,21 @@ class RequestRecord:
 def _same_site(host: str, origin_host: str) -> bool:
     host = host.lower().strip(".")
     origin_host = origin_host.lower().strip(".")
-    return bool(host and origin_host and (host == origin_host or host.endswith("." + origin_host) or origin_host.endswith("." + host)))
+    return bool(
+        host
+        and origin_host
+        and (
+            host == origin_host
+            or host.endswith("." + origin_host)
+            or origin_host.endswith("." + host)
+        )
+    )
 
 
 async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
-    parsed = urlparse(target)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ValueError("Enter a valid HTTP(S) URL.")
+    validate_public_url(target)
 
+    parsed = urlparse(target)
     origin_host = parsed.hostname or ""
     records: list[RequestRecord] = []
     started_at = time.perf_counter()
@@ -43,12 +52,25 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
     main_headers: dict[str, str] = {}
     timing: dict[str, Any] | None = None
     page_title = ""
+    blocked_requests = 0
 
     async with async_playwright() as pw:
         browser: Browser = await pw.chromium.launch(headless=True)
         try:
             page: Page = await browser.new_page(viewport={"width": 1440, "height": 900})
             pending: dict[int, float] = {}
+
+            async def route_guard(route: Route) -> None:
+                nonlocal blocked_requests
+                try:
+                    validate_public_url(route.request.url)
+                except ValueError:
+                    blocked_requests += 1
+                    await route.abort("blockedbyclient")
+                    return
+                await route.continue_()
+
+            await page.route("**/*", route_guard)
 
             def request_started(request: Any) -> None:
                 pending[id(request)] = time.perf_counter()
@@ -73,39 +95,51 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
                 resource_timing = request.timing
                 start_ms = resource_timing.get("startTime") if resource_timing else None
                 end_ms = resource_timing.get("responseEnd") if resource_timing else None
-                duration = (end_ms - start_ms) if start_ms is not None and end_ms is not None and end_ms >= 0 else ((time.perf_counter() - start_clock) * 1000 if start_clock is not None else None)
-                records.append(RequestRecord(
-                    url=request.url,
-                    method=request.method,
-                    status=status,
-                    resource_type=request.resource_type,
-                    host=host,
-                    is_third_party=not _same_site(host, origin_host),
-                    start_ms=round(start_ms, 1) if start_ms is not None else None,
-                    duration_ms=round(max(0.0, duration), 1) if duration is not None else None,
-                    response_size=response_size,
-                    failed=failed,
-                    failure=failure,
-                ))
+                duration = (
+                    (end_ms - start_ms)
+                    if start_ms is not None and end_ms is not None and end_ms >= 0
+                    else ((time.perf_counter() - start_clock) * 1000 if start_clock is not None else None)
+                )
+                records.append(
+                    RequestRecord(
+                        url=request.url,
+                        method=request.method,
+                        status=status,
+                        resource_type=request.resource_type,
+                        host=host,
+                        is_third_party=not _same_site(host, origin_host),
+                        start_ms=round(start_ms, 1) if start_ms is not None else None,
+                        duration_ms=round(max(0.0, duration), 1) if duration is not None else None,
+                        response_size=response_size,
+                        failed=failed,
+                        failure=failure,
+                    )
+                )
 
             async def request_failed(request: Any) -> None:
                 start_clock = pending.pop(id(request), None)
                 host = urlparse(request.url).hostname or ""
                 failure = request.failure or "request failed"
-                duration = (time.perf_counter() - start_clock) * 1000 if start_clock is not None else None
-                records.append(RequestRecord(
-                    url=request.url,
-                    method=request.method,
-                    status=None,
-                    resource_type=request.resource_type,
-                    host=host,
-                    is_third_party=not _same_site(host, origin_host),
-                    start_ms=None,
-                    duration_ms=round(duration, 1) if duration is not None else None,
-                    response_size=None,
-                    failed=True,
-                    failure=failure,
-                ))
+                duration = (
+                    (time.perf_counter() - start_clock) * 1000
+                    if start_clock is not None
+                    else None
+                )
+                records.append(
+                    RequestRecord(
+                        url=request.url,
+                        method=request.method,
+                        status=None,
+                        resource_type=request.resource_type,
+                        host=host,
+                        is_third_party=not _same_site(host, origin_host),
+                        start_ms=None,
+                        duration_ms=round(duration, 1) if duration is not None else None,
+                        response_size=None,
+                        failed=True,
+                        failure=failure,
+                    )
+                )
 
             async def response_seen(response: Any) -> None:
                 nonlocal navigation_status, main_headers
@@ -172,8 +206,6 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
     security_headers = {name: main_headers.get(name) for name in header_names if main_headers.get(name)}
     missing_security_headers = [name for name in header_names if not main_headers.get(name)]
 
-    # A compact host dependency graph: each observed host is linked to the page origin.
-    # This describes network dependencies; it does not claim that one host caused another.
     dependency_nodes = sorted({origin_host, *[r.host for r in records if r.host]})
     dependency_edges = [
         {"source": origin_host, "target": host, "requests": count}
@@ -190,6 +222,7 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
         "analysis_duration_ms": total_ms,
         "request_count": len(records),
         "failed_request_count": len(failed_requests),
+        "blocked_request_count": blocked_requests,
         "third_party_request_count": sum(r.is_third_party for r in records),
         "third_party_hosts": third_party_hosts,
         "known_response_bytes": total_known_bytes,
