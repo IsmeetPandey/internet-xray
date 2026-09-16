@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="See the hidden network activity behind a web page.">
+  <title>Internet X-Ray</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div class="eyebrow">INTERNET X-RAY / v0.1</div>
+      <h1>See what happens<br><span>behind the page.</span></h1>
+      <p>Enter a public URL. X-Ray loads it in Chromium and turns invisible network activity into readable evidence.</p>
+    </header>
+
+    <form id="analyze-form" class="searchbar">
+      <input id="url" name="url" type="url" inputmode="url" placeholder="https://example.com" autocomplete="url" required>
+      <button type="submit">Run X-Ray <span>→</span></button>
+    </form>
+
+    <section id="state" class="state hidden" aria-live="polite"></section>
+
+    <section id="results" class="hidden">
+      <div class="grid metrics" id="metrics"></div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">NAVIGATION TIMING</div>
+            <h2>Where the time went</h2>
+          </div>
+          <span id="final-url" class="mono"></span>
+        </div>
+        <div id="timing" class="timing-grid"></div>
+      </div>
+
+      <div class="two-col">
+        <div class="panel">
+          <div class="eyebrow">RESOURCE MIX</div>
+          <h2>What the browser loaded</h2>
+          <div id="resources" class="bars"></div>
+        </div>
+
+        <div class="panel">
+          <div class="eyebrow">EXTERNAL HOSTS</div>
+          <h2>Who else was contacted</h2>
+          <div id="hosts" class="host-list"></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="eyebrow">REQUEST STREAM</div>
+            <h2>Network activity</h2>
+          </div>
+          <span id="request-count-label" class="muted"></span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Host</th><th>Type</th><th>Status</th><th>Time</th><th>Third-party</th></tr>
+            </thead>
+            <tbody id="requests"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <footer>
+      Built to make hidden systems visible. <a href="https://github.com/IsmeetPandey/internet-xray" target="_blank" rel="noreferrer">Source on GitHub ↗</a>
+    </footer>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
