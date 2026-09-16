@@ -162,9 +162,25 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
     failed_requests = [r for r in records if r.failed]
     total_known_bytes = sum(r.response_size or 0 for r in records)
     timing = timing or {}
-    security_headers = {name: main_headers.get(name) for name in (
-        "content-security-policy", "strict-transport-security", "x-content-type-options", "referrer-policy", "permissions-policy"
-    ) if main_headers.get(name)}
+    header_names = (
+        "content-security-policy",
+        "strict-transport-security",
+        "x-content-type-options",
+        "referrer-policy",
+        "permissions-policy",
+    )
+    security_headers = {name: main_headers.get(name) for name in header_names if main_headers.get(name)}
+    missing_security_headers = [name for name in header_names if not main_headers.get(name)]
+
+    # A compact host dependency graph: each observed host is linked to the page origin.
+    # This describes network dependencies; it does not claim that one host caused another.
+    dependency_nodes = sorted({origin_host, *[r.host for r in records if r.host]})
+    dependency_edges = [
+        {"source": origin_host, "target": host, "requests": count}
+        for host, count in host_counts.items()
+        if host and host != origin_host
+    ]
+
     return {
         "requested_url": target,
         "final_url": final_url,
@@ -181,5 +197,7 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
         "host_counts": dict(host_counts.most_common()),
         "timing": timing,
         "security_headers": security_headers,
+        "missing_security_headers": missing_security_headers,
+        "dependency_graph": {"nodes": dependency_nodes, "edges": dependency_edges},
         "requests": [asdict(r) for r in records],
     }
