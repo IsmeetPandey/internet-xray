@@ -24,14 +24,6 @@ class RequestRecord:
     failure: str | None
 
 
-def _phase(timing: dict[str, Any], start: str, end: str) -> float | None:
-    a = timing.get(start, -1)
-    b = timing.get(end, -1)
-    if a is None or b is None or a < 0 or b < 0:
-        return None
-    return round(max(0.0, b - a), 1)
-
-
 def _same_site(host: str, origin_host: str) -> bool:
     host = host.lower().strip(".")
     origin_host = origin_host.lower().strip(".")
@@ -62,9 +54,7 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
                 pending[id(request)] = time.perf_counter()
 
             async def request_finished(request: Any) -> None:
-                key = id(request)
-                start_clock = pending.pop(key, None)
-                duration = (time.perf_counter() - start_clock) * 1000 if start_clock is not None else None
+                start_clock = pending.pop(id(request), None)
                 response = await request.response()
                 host = urlparse(request.url).hostname or ""
                 status = response.status if response else None
@@ -74,64 +64,52 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
                 if response:
                     try:
                         sizes = await request.sizes()
-                        response_size = sizes.get("responseBodySize") or sizes.get("responseHeadersSize") or None
+                        response_size = sizes.get("responseBodySize") or None
                     except Exception:
                         pass
                 else:
                     failed = True
-                    try:
-                        failure = request.failure
-                    except Exception:
-                        failure = "request failed"
-                resource_timing = await request.timing()
-                start_ms = resource_timing.get("startTime")
-                end_ms = resource_timing.get("responseEnd")
-                precise_duration = round(max(0.0, end_ms - start_ms), 1) if start_ms is not None and end_ms is not None and end_ms >= 0 else duration
-                records.append(
-                    RequestRecord(
-                        url=request.url,
-                        method=request.method,
-                        status=status,
-                        resource_type=request.resource_type,
-                        host=host,
-                        is_third_party=not _same_site(host, origin_host),
-                        start_ms=round(start_ms, 1) if start_ms is not None else None,
-                        duration_ms=round(precise_duration, 1) if precise_duration is not None else None,
-                        response_size=response_size,
-                        failed=failed,
-                        failure=failure,
-                    )
-                )
+                    failure = request.failure or "request failed"
+                resource_timing = request.timing
+                start_ms = resource_timing.get("startTime") if resource_timing else None
+                end_ms = resource_timing.get("responseEnd") if resource_timing else None
+                duration = (end_ms - start_ms) if start_ms is not None and end_ms is not None and end_ms >= 0 else ((time.perf_counter() - start_clock) * 1000 if start_clock is not None else None)
+                records.append(RequestRecord(
+                    url=request.url,
+                    method=request.method,
+                    status=status,
+                    resource_type=request.resource_type,
+                    host=host,
+                    is_third_party=not _same_site(host, origin_host),
+                    start_ms=round(start_ms, 1) if start_ms is not None else None,
+                    duration_ms=round(max(0.0, duration), 1) if duration is not None else None,
+                    response_size=response_size,
+                    failed=failed,
+                    failure=failure,
+                ))
 
             async def request_failed(request: Any) -> None:
-                key = id(request)
-                start_clock = pending.pop(key, None)
-                duration = (time.perf_counter() - start_clock) * 1000 if start_clock is not None else None
+                start_clock = pending.pop(id(request), None)
                 host = urlparse(request.url).hostname or ""
-                failure = None
-                try:
-                    failure = request.failure
-                except Exception:
-                    failure = "request failed"
-                records.append(
-                    RequestRecord(
-                        url=request.url,
-                        method=request.method,
-                        status=None,
-                        resource_type=request.resource_type,
-                        host=host,
-                        is_third_party=not _same_site(host, origin_host),
-                        start_ms=None,
-                        duration_ms=round(duration, 1) if duration is not None else None,
-                        response_size=None,
-                        failed=True,
-                        failure=failure,
-                    )
-                )
+                failure = request.failure or "request failed"
+                duration = (time.perf_counter() - start_clock) * 1000 if start_clock is not None else None
+                records.append(RequestRecord(
+                    url=request.url,
+                    method=request.method,
+                    status=None,
+                    resource_type=request.resource_type,
+                    host=host,
+                    is_third_party=not _same_site(host, origin_host),
+                    start_ms=None,
+                    duration_ms=round(duration, 1) if duration is not None else None,
+                    response_size=None,
+                    failed=True,
+                    failure=failure,
+                ))
 
             async def response_seen(response: Any) -> None:
                 nonlocal navigation_status, main_headers
-                if response.request.resource_type == "document" and response.request.url == target:
+                if response.request.resource_type == "document":
                     navigation_status = response.status
                     try:
                         main_headers = await response.all_headers()
@@ -158,24 +136,21 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
 
             final_url = page.url
             page_title = await page.title()
-            timing = await page.evaluate(
-                """() => {
-                    const n = performance.getEntriesByType('navigation')[0];
-                    if (!n) return null;
-                    return {
-                        dns_ms: Math.max(0, n.domainLookupEnd - n.domainLookupStart),
-                        tcp_ms: Math.max(0, n.connectEnd - n.connectStart),
-                        tls_ms: n.secureConnectionStart > 0 ? Math.max(0, n.connectEnd - n.secureConnectionStart) : 0,
-                        request_ms: Math.max(0, n.responseStart - n.requestStart),
-                        ttfb_ms: Math.max(0, n.responseStart - n.requestStart),
-                        dom_content_loaded_ms: Math.max(0, n.domContentLoadedEventEnd - n.startTime),
-                        load_event_ms: Math.max(0, n.loadEventEnd - n.startTime),
-                        transfer_size: n.transferSize || 0,
-                        encoded_body_size: n.encodedBodySize || 0,
-                        decoded_body_size: n.decodedBodySize || 0
-                    };
-                }"""
-            )
+            timing = await page.evaluate("""() => {
+                const n = performance.getEntriesByType('navigation')[0];
+                if (!n) return null;
+                return {
+                    dns_ms: Math.max(0, n.domainLookupEnd - n.domainLookupStart),
+                    tcp_ms: Math.max(0, n.connectEnd - n.connectStart),
+                    tls_ms: n.secureConnectionStart > 0 ? Math.max(0, n.connectEnd - n.secureConnectionStart) : 0,
+                    ttfb_ms: Math.max(0, n.responseStart - n.requestStart),
+                    dom_content_loaded_ms: Math.max(0, n.domContentLoadedEventEnd - n.startTime),
+                    load_event_ms: Math.max(0, n.loadEventEnd - n.startTime),
+                    transfer_size: n.transferSize || 0,
+                    encoded_body_size: n.encodedBodySize || 0,
+                    decoded_body_size: n.decodedBodySize || 0
+                };
+            }""")
         finally:
             await browser.close()
 
@@ -187,19 +162,9 @@ async def analyze_url(target: str, timeout_ms: int = 20_000) -> dict[str, Any]:
     failed_requests = [r for r in records if r.failed]
     total_known_bytes = sum(r.response_size or 0 for r in records)
     timing = timing or {}
-
-    security_headers = {
-        name: main_headers.get(name)
-        for name in (
-            "content-security-policy",
-            "strict-transport-security",
-            "x-content-type-options",
-            "referrer-policy",
-            "permissions-policy",
-        )
-        if main_headers.get(name)
-    }
-
+    security_headers = {name: main_headers.get(name) for name in (
+        "content-security-policy", "strict-transport-security", "x-content-type-options", "referrer-policy", "permissions-policy"
+    ) if main_headers.get(name)}
     return {
         "requested_url": target,
         "final_url": final_url,
