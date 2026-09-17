@@ -1,9 +1,12 @@
 import asyncio
+import sys
+from pathlib import Path
 
 import pytest
 
-from app.services.analyzer import _same_site, analyze_url
-from app.services.security import validate_public_url
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.services.analyzer import _same_site, analyze_url  # noqa: E402
+from app.services.security import validate_public_url  # noqa: E402
 
 
 def test_analyze_url_rejects_non_http_scheme():
